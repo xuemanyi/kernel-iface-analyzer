@@ -17,12 +17,15 @@ def classify_one(item, subsystem):
     external_callers = []
 
     for c in callers:
+        kind = c.get("callee_kind", "")
         if inside_subsystem(c["caller_file"], subsystem):
             internal_callers.append(c)
         else:
-            external_callers.append(c)
+            # 外部调用：宏调用/函数指针也算外部调用
+            if kind in ("macro_wrapped", "function_pointer", "direct", "indirect_call"):
+                external_callers.append(c)
 
-    if f["is_static"]:
+    if f.get("is_static"):
         reasons.append("static_function")
         confidence = "high"
         if f.get("declared_in_header"):
@@ -121,6 +124,7 @@ def main():
                     "column": c["column"],
                     "merge_fallback": c.get("merge_fallback", "none"),
                     "expr_text": c.get("expr_text", ""),
+                    "callee_kind": c.get("callee_kind", ""),
                 }
                 for c in external_callers
             ]
@@ -135,6 +139,7 @@ def main():
                     "column": c["column"],
                     "merge_fallback": c.get("merge_fallback", "none"),
                     "expr_text": c.get("expr_text", ""),
+                    "callee_kind": c.get("callee_kind", ""),
                 }
                 for c in internal_callers
             ]
@@ -169,4 +174,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-

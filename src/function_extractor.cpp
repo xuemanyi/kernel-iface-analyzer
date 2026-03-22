@@ -72,11 +72,11 @@ std::vector<std::string> sanitizeArgs(const CommandLineArguments &args) {
             continue;
         }
 
-        if (StringRef(a).startswith("-Wp,-MMD") ||
-            StringRef(a).startswith("-Wp,-MD") ||
-            StringRef(a).startswith("-Wp,-MF,") ||
-            StringRef(a).startswith("-Wp,-MT,") ||
-            StringRef(a).startswith("-Wp,-MQ,")) {
+        if (StringRef(a).starts_with("-Wp,-MMD") ||
+            StringRef(a).starts_with("-Wp,-MD") ||
+            StringRef(a).starts_with("-Wp,-MF,") ||
+            StringRef(a).starts_with("-Wp,-MT,") ||
+            StringRef(a).starts_with("-Wp,-MQ,")) {
             continue;
         }
 
@@ -84,6 +84,20 @@ std::vector<std::string> sanitizeArgs(const CommandLineArguments &args) {
     }
 
     return out;
+}
+
+SourceLocation getPreferredDeclLoc(FunctionDecl *FD, const SourceManager &SM) {
+    SourceLocation loc = FD->getLocation();
+    if (loc.isInvalid()) {
+        loc = FD->getNameInfo().getLoc();
+    }
+    if (loc.isInvalid()) {
+        loc = FD->getBeginLoc();
+    }
+    if (loc.isInvalid()) {
+        return loc;
+    }
+    return SM.getExpansionLoc(loc);
 }
 
 class FunctionVisitor : public RecursiveASTVisitor<FunctionVisitor> {
@@ -105,12 +119,12 @@ public:
         }
 
         auto &SM = Ctx.getSourceManager();
-        auto spellingLoc = SM.getSpellingLoc(FD->getBeginLoc());
-        if (spellingLoc.isInvalid()) {
+        SourceLocation loc = getPreferredDeclLoc(FD, SM);
+        if (loc.isInvalid()) {
             return true;
         }
 
-        std::string absFile = SM.getFilename(spellingLoc).str();
+        std::string absFile = SM.getFilename(loc).str();
         if (absFile.empty()) {
             return true;
         }
@@ -126,8 +140,8 @@ public:
             llvm::json::Object obj;
             obj["name"] = FD->getNameAsString();
             obj["file"] = relFile;
-            obj["line"] = static_cast<int64_t>(SM.getSpellingLineNumber(spellingLoc));
-            obj["column"] = static_cast<int64_t>(SM.getSpellingColumnNumber(spellingLoc));
+            obj["line"] = static_cast<int64_t>(SM.getExpansionLineNumber(loc));
+            obj["column"] = static_cast<int64_t>(SM.getExpansionColumnNumber(loc));
             obj["is_definition"] = true;
             obj["is_static"] = (FD->getStorageClass() == SC_Static);
             obj["storage_class"] = static_cast<int64_t>(FD->getStorageClass());
@@ -144,10 +158,10 @@ public:
             obj["parameters"] = std::move(params);
 
             obj["signature_text"] = FD->getNameInfo().getAsString();
-            obj["from_macro_expansion"] = FD->getBeginLoc().isMacroID();
+            obj["from_macro_expansion"] = FD->getLocation().isMacroID();
             obj["usr_hint"] = (relFile + ":" + FD->getNameAsString() + ":" +
-                               std::to_string(SM.getSpellingLineNumber(spellingLoc)) + ":" +
-                               std::to_string(SM.getSpellingColumnNumber(spellingLoc)));
+                               std::to_string(SM.getExpansionLineNumber(loc)) + ":" +
+                               std::to_string(SM.getExpansionColumnNumber(loc)));
 
             Definitions.emplace_back(std::move(obj));
             return true;
@@ -155,12 +169,11 @@ public:
 
         if (!FD->isThisDeclarationADefinition() &&
             kia::has_any_extension(relFile, {".h"})) {
-
             llvm::json::Object obj;
             obj["name"] = FD->getNameAsString();
             obj["decl_file"] = relFile;
-            obj["decl_line"] = static_cast<int64_t>(SM.getSpellingLineNumber(spellingLoc));
-            obj["decl_column"] = static_cast<int64_t>(SM.getSpellingColumnNumber(spellingLoc));
+            obj["decl_line"] = static_cast<int64_t>(SM.getExpansionLineNumber(loc));
+            obj["decl_column"] = static_cast<int64_t>(SM.getExpansionColumnNumber(loc));
             obj["return_type"] = getTypeText(FD->getReturnType(), Ctx);
             obj["param_count"] = static_cast<int64_t>(FD->param_size());
 
